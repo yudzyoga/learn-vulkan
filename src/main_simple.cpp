@@ -1,5 +1,7 @@
 #include <cstdint>
 #include <cstring>
+#include <optional>
+#include <set>
 #include <vector>
 #include <vulkan/vulkan.h>
 
@@ -8,6 +10,11 @@
 #include <iostream>
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
+
+// #define GLFW_INCLUDE_VULKAN
+// #include <GLFW/glfw3.h>
+// #define GLFW_EXPOSE_NATIVE_WIN32
+// #include <GLFW/glfw3native.h>
 
 const uint32_t HEIGHT = 600;
 const uint32_t WIDTH = 800;
@@ -47,6 +54,15 @@ class HelloTriangleApplication {
 
 		std::cout << "[INFO] initVulkan - setupDebugMessenger()" << std::endl;
 		setupDebugMessenger();
+
+		std::cout << "[INFO] initVulkan - createSurface()" << std::endl;
+		createSurface();
+
+		std::cout << "[INFO] initVulkan - setupDebugMessenger()" << std::endl;
+		pickPhysicalDevice();
+
+		std::cout << "[INFO] initVulkan - createLogicalDevice()" << std::endl;
+		createLogicalDevice();
 	}
 
 	bool checkValidationLayerSupport() {
@@ -150,20 +166,6 @@ class HelloTriangleApplication {
 		createInfo.pfnUserCallback = debugCallback;
 	}
 
-	void setupDebugMessenger() {
-		if (!enableValidationLayers)
-			return;
-
-		VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-		populateDebugMessengerCreateInfo(createInfo);
-		createInfo.pUserData = nullptr; // Optional
-
-		if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr,
-										 &debugMessenger) != VK_SUCCESS) {
-			throw std::runtime_error("failed to set up debug messenger!");
-		}
-	}
-
 	void createInstance() {
 		if (enableValidationLayers && !checkValidationLayerSupport()) {
 			throw std::runtime_error(
@@ -209,7 +211,7 @@ class HelloTriangleApplication {
 
 		// * handle to the instance will be stored. return VK_SUCCESS or an
 		// error code.
-		if (vkCreateInstance(&createInfo, nullptr, &instance)) {
+		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
 			throw std::runtime_error("Failed to create instance!");
 		}
 
@@ -232,6 +234,188 @@ class HelloTriangleApplication {
 				  << std::endl;
 	}
 
+	void setupDebugMessenger() {
+		if (!enableValidationLayers)
+			return;
+
+		VkDebugUtilsMessengerCreateInfoEXT createInfo{};
+		populateDebugMessengerCreateInfo(createInfo);
+		createInfo.pUserData = nullptr; // Optional
+
+		if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr,
+										 &debugMessenger) != VK_SUCCESS) {
+			throw std::runtime_error("failed to set up debug messenger!");
+		}
+	}
+
+	bool isDeviceSuitable(VkPhysicalDevice device) {
+		/*
+			Check device suitability through (1) discrete GPU, (2) geometry
+		   shader, and (3) has queue families
+		*/
+
+		VkPhysicalDeviceProperties deviceProperties;
+		VkPhysicalDeviceFeatures deviceFeatures;
+		vkGetPhysicalDeviceProperties(device, &deviceProperties);
+		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+		QueueFamilyIndices indices = findQueueFamilies(device);
+
+		bool cat1 =
+			deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+		bool cat2 = deviceFeatures.geometryShader;
+		bool cat3 = indices.isComplete();
+
+		std::cout << "    deviceName: " << deviceProperties.deviceName << " "
+				  << int(cat1) << "," << int(cat2) << "," << int(cat3)
+				  << std::endl;
+
+		return deviceProperties.deviceType ==
+				   VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+			   deviceFeatures.geometryShader && indices.isComplete();
+	}
+
+	void pickPhysicalDevice() {
+		/*
+			Acquire device count and check device suitability through
+		   isDeviceSuitable()
+		*/
+		uint32_t deviceCount = 0;
+		vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+		if (deviceCount == 0) {
+			throw std::runtime_error(
+				"failed to find GPUs with Vulkan support!");
+		}
+
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+		for (const auto &device : devices) {
+			if (isDeviceSuitable(device)) {
+				physicalDevice = device;
+
+				break;
+			}
+		}
+
+		if (physicalDevice == VK_NULL_HANDLE) {
+			throw std::runtime_error("failed to find a suitable GPU!");
+		}
+	}
+
+	struct QueueFamilyIndices {
+		/*
+			This struct defines the index acquired from QueueFamilyProperties
+			which fulfills the VK_QUEUE_GRAPHICS_BIT queue flags.
+		*/
+		std::optional<uint32_t> graphicsFamily;
+		std::optional<uint32_t> presentFamily;
+
+		bool isComplete() {
+			return graphicsFamily.has_value() && presentFamily.has_value();
+		}
+	};
+
+	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+		QueueFamilyIndices indices;
+
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+												 nullptr);
+
+		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+												 queueFamilies.data());
+
+		int i = 0;
+		for (const auto &queueFamily : queueFamilies) {
+			// * check queue flags
+			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				// find at least one qfamily that suppports VK_QUEUE_GRAP_BIT
+				indices.graphicsFamily = i;
+			}
+
+			// * check surface support
+			VkBool32 presentSupport = false;
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface,
+												 &presentSupport);
+			if (presentSupport) {
+				indices.presentFamily = i;
+			}
+
+			if (indices.isComplete()) {
+				break;
+			}
+			i++;
+		}
+
+		return indices;
+	}
+
+	void createLogicalDevice() {
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+
+		// VkDeviceQueueCreateInfo queueCreateInfo{};
+
+		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+		std::set<uint32_t> uniqueQueueFamilies = {
+			indices.graphicsFamily.value(), indices.presentFamily.value()};
+
+		float queuePriority = 1.0f;
+		for (uint32_t queueFamily : uniqueQueueFamilies) {
+			// describe number of queue for a single queue family
+			VkDeviceQueueCreateInfo queueCreateInfo{};
+			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			queueCreateInfo.queueFamilyIndex = queueFamily;
+			queueCreateInfo.queueCount = 1;
+			queueCreateInfo.pQueuePriorities = &queuePriority;
+			queueCreateInfos.push_back(queueCreateInfo);
+		}
+
+		VkPhysicalDeviceFeatures deviceFeatures{};
+		VkDeviceCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		createInfo.queueCreateInfoCount =
+			static_cast<uint32_t>(queueCreateInfos.size());
+		createInfo.pQueueCreateInfos = queueCreateInfos.data();
+		createInfo.pEnabledFeatures = &deviceFeatures;
+
+		if (enableValidationLayers) {
+			createInfo.enabledLayerCount =
+				static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		} else {
+			createInfo.enabledLayerCount = 0;
+		}
+
+		if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) !=
+			VK_SUCCESS) {
+			throw std::runtime_error("failed to create logical device!");
+		}
+
+		// retrieve graphics queue
+		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0,
+						 &graphicsQueue);
+		vkGetDeviceQueue(device, indices.presentFamily.value(), 0,
+						 &presentQueue);
+
+		// std::cout << "acquired indices: " << indices.graphicsFamily.value()
+		// 		  << " " << indices.presentFamily.value() << std::endl;
+	}
+
+	void createSurface() {
+		/*
+			glfw give native OS handle, which initialized as window. but vulkan
+		   has no idea about this therefore there should be an internal
+		   representation from vulkan to determine the place to really represent
+		   the image through "surface". therefore we need it!
+		*/
+		if (glfwCreateWindowSurface(instance, window, nullptr, &surface) !=
+			VK_SUCCESS) {
+			throw std::runtime_error("failed to create window surface!");
+		}
+	}
+
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
@@ -242,11 +426,12 @@ class HelloTriangleApplication {
 		std::cout << "[INFO] cleanup()" << std::endl;
 
 		if (enableValidationLayers) {
-			// DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}
 
+		vkDestroyDevice(device, nullptr);
+		vkDestroySurfaceKHR(instance, surface, nullptr);
 		vkDestroyInstance(instance, nullptr);
-
 		// windowing
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -257,6 +442,10 @@ class HelloTriangleApplication {
 	GLFWwindow *window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkDevice device;
+	VkQueue graphicsQueue, presentQueue;
+	VkSurfaceKHR surface;
 };
 
 int main() {
