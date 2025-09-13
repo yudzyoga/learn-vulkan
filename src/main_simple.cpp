@@ -15,10 +15,7 @@
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
 
-// #define GLFW_INCLUDE_VULKAN
-// #include <GLFW/glfw3.h>
-// #define GLFW_EXPOSE_NATIVE_WIN32
-// #include <GLFW/glfw3native.h>
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const uint32_t HEIGHT = 600;
 const uint32_t WIDTH = 800;
@@ -48,9 +45,18 @@ class HelloTriangleApplication {
 		glfwInit();
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	}
+
+	static void framebufferResizeCallback(GLFWwindow *window, int width,
+										  int height) {
+		auto app = reinterpret_cast<HelloTriangleApplication *>(
+			glfwGetWindowUserPointer(window));
+		app->framebufferResized = true;
 	}
 
 	void initVulkan() {
@@ -88,8 +94,8 @@ class HelloTriangleApplication {
 		std::cout << "[INFO] initVulkan - createCommandPool()" << std::endl;
 		createCommandPool();
 
-		std::cout << "[INFO] initVulkan - createCommandBuffer()" << std::endl;
-		createCommandBuffer();
+		std::cout << "[INFO] initVulkan - createCommandBuffers()" << std::endl;
+		createCommandBuffers();
 
 		std::cout << "[INFO] initVulkan - createSyncObjects()" << std::endl;
 		createSyncObjects();
@@ -533,7 +539,7 @@ class HelloTriangleApplication {
 		*/
 		const std::vector<VkPresentModeKHR> &availablePresentModes) {
 		for (const auto &availablePresentMode : availablePresentModes) {
-			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+			if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
 				return availablePresentMode;
 			}
 		}
@@ -975,17 +981,19 @@ class HelloTriangleApplication {
 		}
 	}
 
-	void createCommandBuffer() {
+	void createCommandBuffers() {
+		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkCommandBufferAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		allocInfo.commandPool = commandPool;
 		// can be submitted to a queue for execution, but canot be called from
 		// other command buffers
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandBufferCount = 1;
+		allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
 
-		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) !=
-			VK_SUCCESS) {
+		if (vkAllocateCommandBuffers(device, &allocInfo,
+									 commandBuffers.data()) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create command buffers!");
 		}
 	}
@@ -1041,6 +1049,10 @@ class HelloTriangleApplication {
 	}
 
 	void createSyncObjects() {
+		imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -1048,20 +1060,73 @@ class HelloTriangleApplication {
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // initiate signal
 
-		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-							  &imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr,
-							  &renderFinishedSemaphore) != VK_SUCCESS ||
-			vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) !=
-				VK_SUCCESS) {
-			throw std::runtime_error("failed to create semophores!");
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+								  &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+								  &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+				vkCreateFence(device, &fenceInfo, nullptr,
+							  &inFlightFences[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create semophores!");
+			}
 		}
 	}
 
+	void recreateSwapChain() {
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
+		vkDeviceWaitIdle(device);
+
+		cleanupSwapChain();
+
+		createSwapChain();
+		createImageViews();
+		createFrameBuffers();
+	}
+
+	void cleanupSwapChain() {
+
+		for (auto framebuffer : swapChainFramebuffers) {
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+
+		for (auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
+
 	void mainLoop() {
+
+		double lastTime = glfwGetTime();
+		int frames = 0;
+
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
 			drawFrame();
+
+			double currentTime = glfwGetTime();
+			frames++;
+			if (currentTime - lastTime >= 1.0) { // one second passed
+				double fps = frames / (currentTime - lastTime);
+
+				// Option A: print to terminal
+				std::cout << "FPS: " << fps << std::endl;
+
+				// Option B: show in window title
+				std::string title =
+					"Vulkan App - FPS: " + std::to_string((int)fps);
+				glfwSetWindowTitle(window, title.c_str());
+
+				frames = 0;
+				lastTime = currentTime;
+			}
 		}
 
 		vkDeviceWaitIdle(device);
@@ -1069,37 +1134,49 @@ class HelloTriangleApplication {
 
 	void drawFrame() {
 		// wait previos frame finished
-		vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(device, 1, &inFlightFence);
+		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE,
+						UINT64_MAX);
 
 		// acquire image from swap chain
 		uint32_t imageIndex;
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
-							  imageAvailableSemaphore, VK_NULL_HANDLE,
-							  &imageIndex);
+		VkResult result =
+			vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
+								  imageAvailableSemaphores[currentFrame],
+								  VK_NULL_HANDLE, &imageIndex);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+			recreateSwapChain();
+			return;
+		} else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+			throw std::runtime_error("failed to acquire swap chain images!");
+		}
+
+		// only reset fence if we are submitting work
+		vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
 		// recording the command buffer
-		vkResetCommandBuffer(commandBuffer, 0);
-		recordCommandBuffer(commandBuffer, imageIndex);
+		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-		VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
-		VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+		VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
+		VkSemaphore signalSemaphores[] = {
+			renderFinishedSemaphores[currentFrame]};
 		VkPipelineStageFlags waitStages[] = {
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 		submitInfo.waitSemaphoreCount = 1;
 		submitInfo.pWaitSemaphores = waitSemaphores;
 		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffer;
+		submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) !=
-			VK_SUCCESS) {
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo,
+						  inFlightFences[currentFrame]) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
 		}
 
@@ -1115,34 +1192,40 @@ class HelloTriangleApplication {
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr;
 
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
+			framebufferResized) {
+			framebufferResized = false;
+			recreateSwapChain();
+		} else if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to present swap chain images!");
+		}
+
+		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	void cleanup() {
 		std::cout << "[INFO] cleanup()" << std::endl;
 
+		cleanupSwapChain();
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroyFence(device, inFlightFences[i], nullptr);
+		}
+
 		if (enableValidationLayers) {
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}
 
-		for (auto imageView : swapChainImageViews) {
-			vkDestroyImageView(device, imageView, nullptr);
-		}
-
-		for (auto framebuffer : swapChainFramebuffers) {
-			vkDestroyFramebuffer(device, framebuffer, nullptr);
-		}
-
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyShaderModule(device, vertShaderModule, nullptr);
 		vkDestroyShaderModule(device, fragShaderModule, nullptr);
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
 		vkDestroyCommandPool(device, commandPool, nullptr);
-		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
-		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-		vkDestroyFence(device, inFlightFence, nullptr);
 		vkDestroyDevice(device, nullptr);
 		vkDestroySurfaceKHR(instance, surface, nullptr);
 		vkDestroyInstance(instance, nullptr);
@@ -1172,9 +1255,11 @@ class HelloTriangleApplication {
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
-	VkSemaphore imageAvailableSemaphore, renderFinishedSemaphore;
-	VkFence inFlightFence;
+	std::vector<VkCommandBuffer> commandBuffers;
+	std::vector<VkSemaphore> imageAvailableSemaphores, renderFinishedSemaphores;
+	std::vector<VkFence> inFlightFences;
+	uint32_t currentFrame = 0;
+	bool framebufferResized = false;
 };
 
 int main() {
