@@ -11,6 +11,8 @@ find_package(Vulkan REQUIRED)
 # Add GLFW (submodule in ext/glfw)
 add_subdirectory(ext/glfw)
 
+add_subdirectory(ext/glm)
+
 # Collect all main.cpp files inside src/
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS src/main*.cpp)
 
@@ -22,6 +24,7 @@ foreach(source_file ${SRC_FILES})
 
     add_executable(${exec_name} ${source_file})
 
-    target_include_directories(${exec_name} PRIVATE ${Vulkan_INCLUDE_DIRS})
-    target_link_libraries(${exec_name} PRIVATE ${Vulkan_LIBRARIES} glfw)
+    target_include_directories(${exec_name} PRIVATE ${Vulkan_INCLUDE_DIRS}  ${CMAKE_SOURCE_DIR}/ext)
+    
+    target_link_libraries(${exec_name} PRIVATE ${Vulkan_LIBRARIES} glfw glm)
 endforeach()
