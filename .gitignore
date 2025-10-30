@@ -44,3 +44,4 @@ build/
 .cache/
 
 shaders/*copy.vert
+*spv
