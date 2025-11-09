@@ -1,5 +1,6 @@
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
+#include "glm/ext/quaternion_geometric.hpp"
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -182,7 +183,7 @@ class HelloTriangleApplication {
 
 	struct Vertex {
 		glm::vec3 pos;
-		// glm::vec3 normal;
+		glm::vec3 normal;
 		glm::vec3 color;
 		glm::vec2 texCoord;
 
@@ -195,9 +196,9 @@ class HelloTriangleApplication {
 			return bindingDescription;
 		}
 
-		static std::array<VkVertexInputAttributeDescription, 3>
+		static std::array<VkVertexInputAttributeDescription, 4>
 		getAttributeDescriptions() {
-			std::array<VkVertexInputAttributeDescription, 3>
+			std::array<VkVertexInputAttributeDescription, 4>
 				attributeDescriptions{};
 
 			attributeDescriptions[0].binding = 0;
@@ -205,20 +206,20 @@ class HelloTriangleApplication {
 			attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
 			attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
-			// attributeDescriptions[1].binding = 0;
-			// attributeDescriptions[1].location = 1;
-			// attributeDescriptions[1].format = VK_FORMAT_R16G16B16A16_SFLOAT;
-			// attributeDescriptions[1].offset = offsetof(Vertex, normal);
-
 			attributeDescriptions[1].binding = 0;
 			attributeDescriptions[1].location = 1;
 			attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-			attributeDescriptions[1].offset = offsetof(Vertex, color);
+			attributeDescriptions[1].offset = offsetof(Vertex, normal);
 
 			attributeDescriptions[2].binding = 0;
 			attributeDescriptions[2].location = 2;
-			attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-			attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+			attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+			attributeDescriptions[2].offset = offsetof(Vertex, color);
+
+			attributeDescriptions[3].binding = 0;
+			attributeDescriptions[3].location = 3;
+			attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT;
+			attributeDescriptions[3].offset = offsetof(Vertex, texCoord);
 
 			return attributeDescriptions;
 		}
@@ -904,7 +905,7 @@ class HelloTriangleApplication {
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
-		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
 		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterizer.depthBiasEnable = VK_FALSE;
 		rasterizer.depthBiasConstantFactor = 0.0f; // Optional
@@ -1533,7 +1534,7 @@ class HelloTriangleApplication {
 		float time = std::chrono::duration<float, std::chrono::seconds::period>(
 						 currentTime - startTime)
 						 .count();
-		float speedRatio = 0.1f;
+		float speedRatio = 0.25f;
 
 		UniformBufferObject ubo{};
 		ubo.model = glm::rotate(glm::mat4(1.0f),
@@ -1736,9 +1737,9 @@ class HelloTriangleApplication {
 							  attrib.vertices[3 * index.vertex_index + 1],
 							  attrib.vertices[3 * index.vertex_index + 2]};
 
-				// vertex.normal = {attrib.normals[3 * index.normal_index + 0],
-				// 				 attrib.normals[3 * index.normal_index + 1],
-				// 				 attrib.normals[3 * index.normal_index + 2]};
+				vertex.normal = {attrib.normals[3 * index.normal_index + 0],
+								 attrib.normals[3 * index.normal_index + 1],
+								 attrib.normals[3 * index.normal_index + 2]};
 
 				vertex.texCoord = {
 					attrib.texcoords[2 * index.texcoord_index + 0],
