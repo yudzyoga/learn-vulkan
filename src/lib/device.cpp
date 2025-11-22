@@ -12,14 +12,12 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 	features.shaderStorageImageWriteWithoutFormat = true;
 
 	// vulkan 1.3 features
-	VkPhysicalDeviceVulkan13Features features13{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+	VkPhysicalDeviceVulkan13Features features13{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
 	features13.dynamicRendering = true;
 	features13.synchronization2 = true;
 
 	// vulkan 1.2 features
-	VkPhysicalDeviceVulkan12Features features12{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+	VkPhysicalDeviceVulkan12Features features12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 	features12.bufferDeviceAddress = true;
 	features12.descriptorIndexing = true;
 
@@ -32,9 +30,8 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 	// add extensions
 	selector.add_required_extensions(
 		{"VK_KHR_maintenance3", "VK_EXT_descriptor_indexing", "VK_KHR_acceleration_structure",
-		 "VK_KHR_ray_tracing_pipeline", "VK_KHR_buffer_device_address",
-		 "VK_KHR_deferred_host_operations", "VK_EXT_descriptor_indexing", "VK_KHR_spirv_1_4",
-		 "VK_KHR_shader_float_controls"});
+		 "VK_KHR_ray_tracing_pipeline", "VK_KHR_buffer_device_address", "VK_KHR_deferred_host_operations",
+		 "VK_EXT_descriptor_indexing", "VK_KHR_spirv_1_4", "VK_KHR_shader_float_controls"});
 
 	bool is_force_nvidia = true;
 	if (is_force_nvidia) {
@@ -92,12 +89,13 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 	commandPool = createCommandPool(getQueueFamilyIndex(vkb::QueueType::graphics),
 									VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
+	// additional: load memory properties
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+
 	fmt::println("Initialized !!!.");
 }
 
-VkQueue VulkanDevice::getQueue(vkb::QueueType type) const {
-	return vkbDevice.get_queue(type).value();
-}
+VkQueue VulkanDevice::getQueue(vkb::QueueType type) const { return vkbDevice.get_queue(type).value(); }
 
 uint32_t VulkanDevice::getQueueFamilyIndex(vkb::QueueType type) const {
 	return vkbDevice.get_queue_index(type).value();
@@ -105,8 +103,8 @@ uint32_t VulkanDevice::getQueueFamilyIndex(vkb::QueueType type) const {
 
 VulkanDevice::~VulkanDevice() { vmaDestroyAllocator(vmaAllocator); }
 
-AllocatedBuffer VulkanDevice::createBuffer(VkBufferUsageFlags usageFlags, VkDeviceSize allocSize,
-										   VmaMemoryUsage memoryUsage) {
+AllocatedBuffer VulkanDevice::createBuffer(VkBufferUsageFlags usageFlags, VmaMemoryUsage memoryUsage,
+										   VkDeviceSize allocSize, VmaAllocationCreateFlags vmaFlags) {
 
 	// allocate buffer info
 	VkBufferCreateInfo bufferInfo = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -117,12 +115,12 @@ AllocatedBuffer VulkanDevice::createBuffer(VkBufferUsageFlags usageFlags, VkDevi
 	// memory allocation info using vma
 	VmaAllocationCreateInfo vmaallocInfo = {};
 	vmaallocInfo.usage = memoryUsage;
-	vmaallocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+	vmaallocInfo.flags = vmaFlags;
 
 	// allocate the buffer
 	AllocatedBuffer newBuffer;
-	VK_CHECK(vmaCreateBuffer(vmaAllocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer,
-							 &newBuffer.allocation, &newBuffer.info));
+	VK_CHECK(vmaCreateBuffer(vmaAllocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation,
+							 &newBuffer.info));
 
 	return newBuffer;
 }
@@ -131,26 +129,25 @@ void VulkanDevice::destroyBuffer(const AllocatedBuffer &buffer) {
 	vmaDestroyBuffer(vmaAllocator, buffer.buffer, buffer.allocation);
 }
 
-AllocatedImage VulkanDevice::createImage(VkImageUsageFlags usageFlags, VkExtent3D extentSize,
-										 VkFormat format, bool mipmapped) {
+AllocatedImage VulkanDevice::createImage(VkImageUsageFlags usageFlags, VmaMemoryUsage memoryUsage,
+										 VkExtent3D extentSize, VkFormat format, bool mipmapped) {
 	AllocatedImage newImage;
 	newImage.imageFormat = format;
 	newImage.imageExtent = extentSize;
 
 	VkImageCreateInfo imgInfo = vkinit::image_create_info(format, usageFlags, extentSize);
 	if (mipmapped) {
-		imgInfo.mipLevels = 1 + static_cast<uint32_t>(std::floor(
-									std::log2(std::max(extentSize.width, extentSize.height))));
+		imgInfo.mipLevels =
+			1 + static_cast<uint32_t>(std::floor(std::log2(std::max(extentSize.width, extentSize.height))));
 	}
 
 	// always allocate images on dedicated GPU memory
-	VmaAllocationCreateInfo allocinfo = {};
-	allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VmaAllocationCreateInfo vmaallocinfo = {};
+	vmaallocinfo.usage = memoryUsage;
+	vmaallocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	// allocate and create the image
-	VK_CHECK(vmaCreateImage(vmaAllocator, &imgInfo, &allocinfo, &newImage.image,
-							&newImage.allocation, nullptr));
+	VK_CHECK(vmaCreateImage(vmaAllocator, &imgInfo, &vmaallocinfo, &newImage.image, &newImage.allocation, nullptr));
 
 	// if the format is a depth format, we will need to have it use the correct
 	// aspect flag
@@ -160,8 +157,7 @@ AllocatedImage VulkanDevice::createImage(VkImageUsageFlags usageFlags, VkExtent3
 	}
 
 	// build a image-view for the image
-	VkImageViewCreateInfo view_info =
-		vkinit::imageview_create_info(format, newImage.image, aspectFlag);
+	VkImageViewCreateInfo view_info = vkinit::imageview_create_info(format, newImage.image, aspectFlag);
 	view_info.subresourceRange.levelCount = imgInfo.mipLevels;
 	VK_CHECK(vkCreateImageView(logicalDevice, &view_info, nullptr, &newImage.imageView));
 
@@ -170,11 +166,9 @@ AllocatedImage VulkanDevice::createImage(VkImageUsageFlags usageFlags, VkExtent3
 
 void VulkanDevice::copyBuffer() {}
 
-VkCommandPool VulkanDevice::createCommandPool(uint32_t queueFamilyIndex,
-											  VkCommandPoolCreateFlags createFlags) {
+VkCommandPool VulkanDevice::createCommandPool(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags createFlags) {
 	VkCommandPool cmdPool;
-	VkCommandPoolCreateInfo commandPoolInfo =
-		vkinit::command_pool_create_info(queueFamilyIndex, createFlags);
+	VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(queueFamilyIndex, createFlags);
 
 	VK_CHECK(vkCreateCommandPool(logicalDevice, &commandPoolInfo, nullptr, &cmdPool));
 	return cmdPool;
@@ -182,8 +176,7 @@ VkCommandPool VulkanDevice::createCommandPool(uint32_t queueFamilyIndex,
 
 VkCommandBuffer VulkanDevice::createCommandBuffer(VkCommandBufferLevel level, bool begin) {
 	// initialize buffer allocation
-	VkCommandBufferAllocateInfo cmdBufAllocateInfo =
-		vkinit::command_buffer_allocate_info(commandPool, 1);
+	VkCommandBufferAllocateInfo cmdBufAllocateInfo = vkinit::command_buffer_allocate_info(commandPool, 1);
 
 	// allocate command buffer
 	VkCommandBuffer cmdBuffer;
@@ -204,9 +197,8 @@ void VulkanDevice::flushCommandBuffer(VkCommandBuffer cmdBuffer, VkQueue queue, 
 
 	VK_CHECK(vkEndCommandBuffer(cmdBuffer));
 
-	VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-							.commandBufferCount = 1,
-							.pCommandBuffers = &cmdBuffer};
+	VkSubmitInfo submitInfo{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cmdBuffer};
 
 	// Create fence to ensure that the command buffer has finished executing
 	VkFenceCreateInfo fenceInfo = vkinit::fence_create_info(0);
@@ -221,5 +213,33 @@ void VulkanDevice::flushCommandBuffer(VkCommandBuffer cmdBuffer, VkQueue queue, 
 	vkDestroyFence(logicalDevice, fence, nullptr);
 	if (true) {
 		vkFreeCommandBuffers(logicalDevice, commandPool, 1, &cmdBuffer);
+	}
+}
+
+uint64_t VulkanDevice::get_buffer_device_address(VkBuffer buffer) {
+	VkBufferDeviceAddressInfoKHR bufferDeviceAI{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+												.buffer = buffer};
+	return vkGetBufferDeviceAddress(logicalDevice, &bufferDeviceAI);
+}
+
+uint32_t VulkanDevice::getMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties,
+									 VkBool32 *memTypeFound) const {
+	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if ((typeBits & 1) == 1) {
+			if ((memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+				if (memTypeFound) {
+					*memTypeFound = true;
+				}
+				return i;
+			}
+		}
+		typeBits >>= 1;
+	}
+
+	if (memTypeFound) {
+		*memTypeFound = false;
+		return 0;
+	} else {
+		throw std::runtime_error("Could not find a matching memory type");
 	}
 }

@@ -13,6 +13,13 @@
 		}                                                                                          \
 	} while (0)
 
+enum DescriptorBindingFlags { ImageBaseColor = 0x00000001, ImageNormalMap = 0x00000002 };
+
+extern VkDescriptorSetLayout descriptorSetLayoutImage;
+extern VkDescriptorSetLayout descriptorSetLayoutUbo;
+extern VkMemoryPropertyFlags memoryPropertyFlags;
+extern uint32_t descriptorBindingFlags;
+
 struct AllocatedBuffer {
 	VkBuffer buffer;
 	VmaAllocation allocation;
@@ -26,17 +33,6 @@ struct AllocatedImage {
 	VkExtent3D imageExtent;
 	VkFormat imageFormat;
 };
-// struct Texture {
-// 	VkImage image;
-// 	VkImageLayout imageLayout;
-// 	VkImageView view;
-// 	uint32_t width, height;
-// 	uint32_t mipLevels;
-// 	uint32_t layerCount;
-// 	VkDescriptorImageInfo descriptor;
-// 	VkSampler sampler;
-// 	uint32_t index;
-// };
 
 /*
 	glTF default vertex layout with easy Vulkan mapping functions
