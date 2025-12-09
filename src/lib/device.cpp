@@ -9,7 +9,6 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 	features.shaderInt64 = true;
 	features.shaderStorageImageReadWithoutFormat = true;
 	features.shaderStorageImageWriteWithoutFormat = true;
-	features.shaderStorageImageWriteWithoutFormat = true;
 
 	// vulkan 1.3 features
 	VkPhysicalDeviceVulkan13Features features13{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
@@ -20,6 +19,17 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 	VkPhysicalDeviceVulkan12Features features12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 	features12.bufferDeviceAddress = true;
 	features12.descriptorIndexing = true;
+	features12.descriptorBindingVariableDescriptorCount = true;
+	features12.runtimeDescriptorArray = true;
+	features12.shaderSampledImageArrayNonUniformIndexing = true;
+
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accel{
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+	accel.accelerationStructure = VK_TRUE;
+
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt{
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+	rt.rayTracingPipeline = VK_TRUE;
 
 	// use vkbootstrap to select a gpu.
 	// We want a gpu that can write to the SDL surface and supports vulkan 1.3
@@ -32,6 +42,10 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 		{"VK_KHR_maintenance3", "VK_EXT_descriptor_indexing", "VK_KHR_acceleration_structure",
 		 "VK_KHR_ray_tracing_pipeline", "VK_KHR_buffer_device_address", "VK_KHR_deferred_host_operations",
 		 "VK_EXT_descriptor_indexing", "VK_KHR_spirv_1_4", "VK_KHR_shader_float_controls"});
+	selector
+		// .add_required_extension_features(bufferAddress)
+		.add_required_extension_features(accel)
+		.add_required_extension_features(rt);
 
 	bool is_force_nvidia = true;
 	if (is_force_nvidia) {
@@ -64,6 +78,20 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 								.select()
 								.value();
 	}
+
+	// enabledDeviceExtensions.push_back({VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME})
+	// enabledDeviceExtensions = {
+	// 	VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+	// 	VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,  VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+	// 	VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,	  VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+	// 	VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME};
+
+	if (!vkbPhysicalDevice.enable_extensions_if_present(enabledDeviceExtensions.size(),
+														enabledDeviceExtensions.data())) {
+		// At least one extension is missing
+		throw std::runtime_error("Required device extension not available");
+	}
+
 	// create the final vulkan device
 	vkb::DeviceBuilder deviceBuilder{vkbPhysicalDevice};
 
@@ -75,8 +103,8 @@ VulkanDevice::VulkanDevice(vkb::Instance &vkbInstance, VkSurfaceKHR surface) {
 	physicalDevice = vkbPhysicalDevice.physical_device;
 
 	// use vkbootstrap to get a Graphics queue
-	// graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
-	// graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+	graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+	graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 
 	// initialize the memory allocator
 	VmaAllocatorCreateInfo allocatorInfo = {};
@@ -111,6 +139,7 @@ AllocatedBuffer VulkanDevice::createBuffer(VkBufferUsageFlags usageFlags, VmaMem
 	bufferInfo.pNext = nullptr;
 	bufferInfo.size = allocSize;
 	bufferInfo.usage = usageFlags;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 	// memory allocation info using vma
 	VmaAllocationCreateInfo vmaallocInfo = {};
@@ -121,6 +150,8 @@ AllocatedBuffer VulkanDevice::createBuffer(VkBufferUsageFlags usageFlags, VmaMem
 	AllocatedBuffer newBuffer;
 	VK_CHECK(vmaCreateBuffer(vmaAllocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation,
 							 &newBuffer.info));
+
+	newBuffer.setupDescriptor();
 
 	return newBuffer;
 }

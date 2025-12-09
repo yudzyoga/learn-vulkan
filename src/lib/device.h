@@ -14,27 +14,34 @@
 #include "types.h"
 
 struct VulkanDevice {
+
+#define VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME "VK_KHR_acceleration_structure"
+#define VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME "VK_KHR_ray_tracing_pipeline"
+#define VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME "VK_KHR_buffer_device_address"
+#define VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME "VK_KHR_deferred_host_operations"
+#define VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME "VK_EXT_descriptor_indexing"
+#define VK_KHR_SPIRV_1_4_EXTENSION_NAME "VK_KHR_spirv_1_4"
+#define VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME "VK_KHR_shader_float_controls"
+
 	vkb::Device vkbDevice;
 	VkPhysicalDevice physicalDevice{VK_NULL_HANDLE};
 	VkDevice logicalDevice{VK_NULL_HANDLE};
 
 	VkPhysicalDeviceProperties properties{};
 	VkPhysicalDeviceFeatures features{};
+
 	VkPhysicalDeviceFeatures enabledFeatures{};
+	std::vector<const char *> enabledDeviceExtensions;
+	std::vector<const char *> enabledInstanceExtensions;
+
+	VkQueue graphicsQueue;
+	uint32_t graphicsQueueFamily;
 
 	std::vector<VkQueueFamilyProperties> queueFamilyProperties;
 	std::vector<std::string> supportedExtensions;
 	VkCommandPool commandPool{VK_NULL_HANDLE};
 
 	VkPhysicalDeviceMemoryProperties memoryProperties{};
-
-	// struct {
-	// 	uint32_t graphics;
-	// 	uint32_t compute;
-	// 	uint32_t transfer;
-	// } queueFamilyIndices;
-	// VkQueue graphicsQueue;
-	// uint32_t graphicsQueueFamily;
 
 	VmaAllocator vmaAllocator;
 

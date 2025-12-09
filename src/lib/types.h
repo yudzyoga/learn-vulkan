@@ -4,14 +4,18 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vk_enum_string_helper.h>
 
-#define VK_CHECK(x)                                                                                \
-	do {                                                                                           \
-		VkResult err = x;                                                                          \
-		if (err) {                                                                                 \
-			fmt::println("Detected Vulkan error: {}", string_VkResult(err));                       \
-			abort();                                                                               \
-		}                                                                                          \
+#define VK_CHECK(x)                                                                                                    \
+	do {                                                                                                               \
+		VkResult err = x;                                                                                              \
+		if (err) {                                                                                                     \
+			fmt::println("Detected Vulkan error: {}", string_VkResult(err));                                           \
+			abort();                                                                                                   \
+		}                                                                                                              \
 	} while (0)
+
+#define VK_CHECK_FUNC(fn)                                                                                              \
+	if (!(fn))                                                                                                         \
+	throw std::runtime_error("Missing Vulkan function: " #fn)
 
 enum DescriptorBindingFlags { ImageBaseColor = 0x00000001, ImageNormalMap = 0x00000002 };
 
@@ -24,6 +28,13 @@ struct AllocatedBuffer {
 	VkBuffer buffer;
 	VmaAllocation allocation;
 	VmaAllocationInfo info;
+	VkDescriptorBufferInfo descriptor;
+
+	void setupDescriptor(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {
+		descriptor.offset = offset;
+		descriptor.buffer = buffer;
+		descriptor.range = size;
+	}
 };
 
 struct AllocatedImage {
@@ -51,8 +62,8 @@ struct Vertex {
 	static std::vector<VkVertexInputAttributeDescription> vertexInputAttributeDescriptions;
 	static VkPipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo;
 	static VkVertexInputBindingDescription inputBindingDescription(uint32_t binding);
-	static VkVertexInputAttributeDescription
-	inputAttributeDescription(uint32_t binding, uint32_t location, VertexComponent component);
+	static VkVertexInputAttributeDescription inputAttributeDescription(uint32_t binding, uint32_t location,
+																	   VertexComponent component);
 	static std::vector<VkVertexInputAttributeDescription>
 	inputAttributeDescriptions(uint32_t binding, const std::vector<VertexComponent> components);
 	/** @brief Returns the default pipeline vertex input state create info

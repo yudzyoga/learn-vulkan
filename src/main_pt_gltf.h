@@ -41,6 +41,7 @@
 #include "lib/initializers.h"
 // #include "lib/texture.h"
 #include "lib/types.h"
+#include <fstream>
 
 #define VK_CHECK(x)                                                                                                    \
 	do {                                                                                                               \
@@ -296,15 +297,15 @@ struct ScratchBuffer {
 	VkDeviceMemory memory{VK_NULL_HANDLE};
 };
 
-struct FrameData {
-	VkCommandPool _commandPool;
-	VkCommandBuffer _mainCommandBuffer;
+// struct FrameData {
+// 	VkCommandPool _commandPool;
+// 	VkCommandBuffer _mainCommandBuffer;
 
-	VkSemaphore _swapchainSemaphore, _renderSemaphore;
-	VkFence _renderFence;
+// 	VkSemaphore _swapchainSemaphore, _renderSemaphore;
+// 	VkFence _renderFence;
 
-	DeletionQueue _deletionQueue;
-};
+// 	DeletionQueue _deletionQueue;
+// };
 
 struct GeometryNode {
 	uint64_t vertexBufferDeviceAddress;
@@ -312,6 +313,15 @@ struct GeometryNode {
 	int32_t textureIndexBaseColor;
 	int32_t textureIndexOcclusion;
 };
+
+// Extends the buffer class and holds information for a shader binding table
+class ShaderBindingTable {
+  public:
+	AllocatedBuffer allocBuffer;
+	VkStridedDeviceAddressRegionKHR stridedDeviceAddressRegion{};
+};
+
+constexpr uint32_t maxConcurrentFrames{2};
 
 class VulkanSimplePT {
   public:
@@ -356,7 +366,7 @@ class VulkanSimplePT {
 	// Enabled features and properties
 	VkPhysicalDeviceBufferDeviceAddressFeatures enabledBufferDeviceAddresFeatures{};
 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR enabledRayTracingPipelineFeatures{};
-	VkPhysicalDeviceAccelerationStructureFeaturesKHR enabledAccelerationStructureFeatures{};
+	// VkPhysicalDeviceAccelerationStructureFeaturesKHR enabledAccelerationStructureFeatures{};
 
 	//   private:
 	void init_window();
@@ -366,6 +376,8 @@ class VulkanSimplePT {
 	void init_commandBuffer();
 	void init_syncPrimitives();
 	void init_rayTracingSetup();
+	// void init_renderPass();
+	// void init_framebuffer();
 	void load_model(std::filesystem::path scene_filename);
 
 	// Create the acceleration structures used to render the ray traced scene
@@ -377,7 +389,7 @@ class VulkanSimplePT {
 	void deleteScratchBuffer(ScratchBuffer &scratchBuffer);
 
 	bool m_isInitialized = false;
-	bool m_isPrepared = false;
+	// bool m_isPrepared = false;
 
 	VkInstance m_instance;						// Vulkan library handle
 	VkDebugUtilsMessengerEXT m_debug_messenger; // Vulkan debug output handle
@@ -393,14 +405,82 @@ class VulkanSimplePT {
 	std::vector<VkImageView> m_swapchainImageViews;
 	VkExtent2D m_swapchainExtent;
 
-	FrameData m_frame;
+	// FrameData m_frame[FRAME_OVERLAP];
 	DescriptorAllocator globalDescriptorAllocator;
 	DeletionQueue m_mainDeletionQueue;
 	AllocatedImage m_drawImage;
+	AllocatedImage storageImage;
+
+	uint32_t width = 640, height = 480;
 
 	VkMemoryPropertyFlags memoryPropertyFlags;
 	// tinygltf::Model gltfModel;
 
 	VulkanDevice *vkDevice;
 	Loader loader;
+
+	// uniform data
+	struct UniformData {
+		glm::mat4 viewInverse;
+		glm::mat4 projInverse;
+		uint32_t frame{0};
+	} uniformData;
+	std::array<AllocatedBuffer, maxConcurrentFrames> uniformBuffers;
+
+	void createStorageImage();
+	void createUniformBuffer();
+	void createRayTracingPipeline();
+	void createShaderBindingTables();
+	void createDescriptorSets();
+
+	VkPipeline pipeline{VK_NULL_HANDLE};
+	VkPipelineLayout pipelineLayout{VK_NULL_HANDLE};
+	std::array<VkDescriptorSet, maxConcurrentFrames> descriptorSets{};
+	VkDescriptorSetLayout descriptorSetLayout{VK_NULL_HANDLE};
+
+	std::vector<VkRayTracingShaderGroupCreateInfoKHR> shaderGroups{};
+	struct ShaderBindingTables {
+		ShaderBindingTable raygen;
+		ShaderBindingTable miss;
+		ShaderBindingTable hit;
+	} shaderBindingTables;
+	void createShaderBindingTable(ShaderBindingTable &shaderBindingTable, uint32_t handleCount);
+	VkStridedDeviceAddressRegionKHR getSbtEntryStridedDeviceAddressRegion(VkBuffer buffer, uint32_t handleCount);
+	VkPipelineShaderStageCreateInfo loadShader(std::string fileName, VkShaderStageFlagBits stage);
+	VkShaderModule readShader(const char *fileName, VkDevice device);
+
+	VkDescriptorPool descriptorPool{VK_NULL_HANDLE};
+	AllocatedBuffer geometryNodesBuffer;
+
+	void render_prepareFrame(bool waitForFence = true);
+	void render_updateUniformBuffers();
+	void render_buildCommandBuffer();
+	void render_submitFrame(bool skipQueueSubmit = false);
+	void render();
+
+	// Synchronization related objects and variables
+	// These are used to have multiple frame buffers "in flight" to get some CPU/GPU parallelism
+	uint32_t currentImageIndex{0}; // ->3
+	uint32_t currentBuffer{0};	   // -> 2
+	std::array<VkSemaphore, maxConcurrentFrames> presentCompleteSemaphores{};
+	std::vector<VkSemaphore> renderCompleteSemaphores{};
+	std::array<VkFence, maxConcurrentFrames> waitFences;
+
+	std::array<VkCommandBuffer, maxConcurrentFrames> drawCmdBuffers;
+
+	void setImageLayout(VkCommandBuffer cmdbuffer, VkImage image, VkImageLayout oldImageLayout,
+						VkImageLayout newImageLayout, VkImageSubresourceRange subresourceRange,
+						VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+						VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
+	void setImageLayout(VkCommandBuffer cmdbuffer, VkImage image, VkImageAspectFlags aspectMask,
+						VkImageLayout oldImageLayout, VkImageLayout newImageLayout,
+						VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+						VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+	// void drawUI(VkCommandBuffer commandBuffer, VkFramebuffer framebuffer);
+
+	VkPipeline postPipeline{VK_NULL_HANDLE};
+	VkPipelineLayout postPipelineLayout{VK_NULL_HANDLE};
+	VkDescriptorSet postDescriptorSet{};
+	void init_others();
 };
