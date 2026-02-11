@@ -17,6 +17,11 @@ add_subdirectory(ext/vk-bootstrap)
 
 add_subdirectory(ext/fmt)
 
+# ====== TinyEXR ======== 
+add_library(tinyexr STATIC ext/tinyexr/tinyexr.cpp)
+target_compile_definitions(tinyexr PUBLIC TINYEXR_USE_MINIZ=0 TINYEXR_USE_STB_ZLIB=1)
+target_include_directories(tinyexr PUBLIC ext/tinyexr)
+
 #both vma and glm and header only libs so we only need the include path
 add_library(vma INTERFACE)
 target_include_directories(vma INTERFACE ext/vma)
@@ -40,6 +45,6 @@ foreach(source_file ${SRC_FILES})
 
     target_sources(${exec_name} PRIVATE ${LIB_SOURCES})
 
-    target_link_libraries(${exec_name} PRIVATE ${Vulkan_LIBRARIES} glfw glm vk-bootstrap::vk-bootstrap fmt::fmt tinygltf)
+    target_link_libraries(${exec_name} PRIVATE ${Vulkan_LIBRARIES} glfw glm vk-bootstrap::vk-bootstrap fmt::fmt tinygltf tinyexr)
 
 endforeach()

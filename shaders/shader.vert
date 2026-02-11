@@ -19,9 +19,9 @@ void main(){
     fragTexCoord = inTexCoord;
     
     
-    vec3 lightPos = vec3(0.0, 0.0, 10.0);  // world-space position of point light
+    vec3 lightPos = vec3(1.0, 1.0, 1.0);  // world-space position of point light
     vec3 lightColor = vec3(1.0, 0.95, 0.8);  // slightly warm light
-    float lightIntensity = 50.0;  // brightness scale
+    float lightIntensity = 1.0;  // brightness scale
 
     vec3 fragPos = inPosition;  // your fragment world position
     vec3 normal = normalize(inNormal);
